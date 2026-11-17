@@ -1,52 +1,26 @@
 {
-  "name": "Weather Forecasting Calculator",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
+  "name": "weather-forecasting",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "calculator",
+  "workspaceFolder": "/workspace",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-python.pylint",
-        "ms-python.black-formatter",
-        "ms-python.isort",
-        "ms-python.flake8",
-        "ms-vscode.vscode-json",
-        "redhat.vscode-yaml",
-        "streetsidesoftware.code-spell-checker"
+        "ms-python.vscode-pylance"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.formatting.provider": "black",
-        "python.linting.enabled": true,
-        "python.linting.pylintEnabled": true,
-        "python.linting.flake8Enabled": true,
-        "editor.formatOnSave": true,
-        "python.terminal.activateEnvironment": false,
-        "files.associations": {
-          "*.yml": "yaml",
-          "*.yaml": "yaml"
-        }
+        "editor.formatOnSave": true
       }
     }
   },
-  "forwardPorts": [8000, 5000],
-  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt && echo 'Dev container setup complete!'",
-  "remoteUser": "developer",
-  "workspaceFolder": "/workspace",
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
-  ],
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "installZsh": true,
-      "installOhMyZsh": true,
-      "upgradePackages": true
-    },
-    "ghcr.io/devcontainers/features/git:1": {
-      "ppa": true,
-      "version": "latest"
+  "portsAttributes": {
+    "5002": {
+      "label": "MLflow UI",
+      "onAutoForward": "notify"
     }
-  }
+  },
+  "remoteUser": "root"
 }

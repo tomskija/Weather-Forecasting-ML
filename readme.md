@@ -1,160 +1,177 @@
-# Weather Forecasting Calculator
+# Weather-Forecasting-ML
 
-A personal Python project exploring weather data analysis and ML forecasting — built around an async data pipeline with a modular structure that lets me swap in different problem types as the project evolves.
+**By: Jackson R. Tomski**
 
-## What is this?
+This project pulls hourly weather station data from NOAA's U.S. Climate Reference Network (USCRN), cleans it into one structure per station, and sets it up for ML work: feature analysis, spatial interpolation between stations, and time series forecasting.
 
-`Calculator.py` is the main entry point. It pulls in and cleans weather station data asynchronously, then routes to one of four analysis modes depending on what I'm working on:
+The data side is built around an async pipeline that pulls every station for every year you ask for in parallel. There's also a synthetic station generator so the whole thing can run and be tested without hitting NOAA, and so models can be checked against data where the physics behind it is known.
 
-| Problem Type | Description | Status |
-|---|---|---|
-| `PROB01` | Feature analysis — correlation, uncertainty quantification, feature importance | 🔧 In progress |
-| `PROB02` | Geospatial modeling — 2D/3D spatial interpolation across station grid | 🗂 Planned |
-| `PROB03` | Time series forecasting — classical and ML-based approaches | 🗂 Planned |
-| `PROB04` | Further ML/AI frameworks as the project matures | 🗂 Planned |
+![Weather Stations Map](weatherForcastingCalculator/Figures/Weather%20Stations%20Map.png)
 
-To switch between them, just change one line in `Calculator.py`:
+---
 
-```python
-inputData["problemType"] = "PROB01"  # swap to PROB02, PROB03, or PROB04
+## What's Inside
+
+### NOAA Data Pipeline
+
+`utils/dataPrepAndParser.py` scrapes the USCRN hourly02 archive. For each year it lists the station files, then pulls them in batches with `aiohttp` and `asyncio.gather`. The parallel version runs in about 500 seconds versus about 700 for the original serial version.
+
+After the pull:
+
+1. **Common stations only** across all years, so every station has a full record.
+2. **Stacked by station**, so each station is one dictionary of 38 USCRN columns covering every year.
+3. **Cleaned**, with the USCRN missing codes (-99, -9999) replaced by NaN.
+4. **Station info** (name, lat, lon, elevation) saved to CSV and plotted on the map above. Elevation comes from the Open-Elevation API.
+
+The result is cached as `weatherDataJSONObject.json` plus `Weather Stations Info.csv`, so you only pull from NOAA once.
+
+### Synthetic Station Generator
+
+`dataPrep/syntheticData.py` writes the exact same cached format, so everything downstream can't tell the difference. The fields are simple but connected to each other:
+
+| Field | How it's built |
+|-------|----------------|
+| Temperature | Climate from latitude and elevation (lapse rate), plus seasonal and daily cycles, plus a weather anomaly that is correlated in time and shared by nearby stations |
+| Rain | Wet/dry spells from a Markov chain, gamma-distributed amounts, a little more likely when it's colder than normal |
+| Solar | Clear sky from the sun's elevation, cut down when it's raining |
+| Humidity | From temperature and dewpoint, higher when it's raining |
+| Surface and soil temperature | Surface heated by the sun, soil temperature lagged and damped with depth |
+| Soil moisture | A bucket at each depth that fills with rain and drains back down, slower when deeper |
+
+It also adds random missing hours and multi-day soil sensor outages on some stations, since real USCRN data has both.
+
+### Data Checks
+
+**`checkWeatherData`** runs on any cached dataset, real or synthetic. It checks the 38 columns are present and the same length, timestamps are hourly and increasing, values are physically reasonable (temperature, rain, solar, humidity, soil moisture, lat/lon), T_MIN isn't above T_MAX, and core columns aren't mostly missing. Soil gaps are a warning, not an error, since a lot of real stations are missing soil data. **`checkSyntheticInputs`** validates the generator inputs and reports every problem at once.
+
+### Calculator
+
+`Calculator.py` follows the same flow as Production-Prediction-ML:
+
 ```
+input JSON → checkData → get data → checkWeatherData → MLflow logging → output wrapper
+```
+
+`data_source` can be:
+
+| `data_source` | What it does |
+|---------------|--------------|
+| `synthetic` | Builds a synthetic station set (default, no network) |
+| `cached` | Loads an existing JSON and CSV from `data_dir` |
+| `noaa` | Pulls from NOAA for the years in `idealDates` (needs internet, slow) |
+
+---
+
+## Problem Types
+
+| Type | What it is |
+|------|------------|
+| `PROB01` | Feature analysis: correlation, uncertainty, feature importance |
+| `PROB02` | Geospatial modeling: interpolate between stations to predict at unobserved locations |
+| `PROB03` | Time series forecasting: classical baselines through ML forecasters |
+| `PROB04` | More advanced methods, e.g. physics-informed NNs in a Bayesian framework |
+
+Set `problemType` in the input JSON to pick one.
+
+---
+
+## Getting Started
+
+**You need:** Docker Desktop and VS Code with the Dev Containers extension.
+
+```bash
+git clone https://github.com/tomskija/Weather-Forecasting-ML.git
+cd Weather-Forecasting-ML
+```
+
+Open the folder in VS Code and select **Reopen in Container**. Docker Compose starts two services: the calculator and an MLflow tracking server.
+
+**Run the calculator:**
+```bash
+python weatherForcastingCalculator/Calculator.py
+```
+
+**Run the test suite:**
+```bash
+pytest tests -v
+```
+
+**Without VS Code:**
+```bash
+docker compose up -d --build
+docker compose exec calculator pytest tests -v
+docker compose exec calculator python weatherForcastingCalculator/Calculator.py
+```
+
+| Service   | URL                   |
+|-----------|-----------------------|
+| MLflow UI | http://localhost:5002 |
+
+MLflow is on 5002 so it can run next to my other repos.
+
+---
+
+## Configuration
+
+Inputs use the same `params` / `tables` JSON format as Production-Prediction-ML. Anything left out falls back to a default.
+
+| Parameter | What it does |
+|-----------|--------------|
+| `problemType` | `PROB01` to `PROB04` |
+| `data_source` | `synthetic`, `cached` or `noaa` |
+| `data_dir` | Folder with the cached JSON and CSV (for `cached`) |
+| `idealDates` | List of years to pull (for `noaa`) |
+| `batchSize` | Stations pulled at once per year (for `noaa`) |
+| `n_stations`, `start_date`, `n_days` | Size and time range of the synthetic set |
+| `lat_min`, `lat_max`, `lon_min`, `lon_max` | Where synthetic stations go |
+| `synoptic_std_c`, `spatial_corr_km` | How big weather anomalies are and how far they reach |
+| `p_dry_to_wet`, `p_wet_to_wet`, `rain_mean_mm` | Rain behavior |
+| `missing_fraction`, `soil_outage_fraction` | How gappy the synthetic data is |
+| `random_seed` | Same seed, same dataset |
+
+See `tests/in_jsons/testCase01.json` for an example. Generated data goes to `Data/Synthetic/`, which is gitignored.
+
+---
 
 ## Project Structure
 
 ```
-Weather-Forcasting-ML/
-├── .devcontainer/                  # VS Code dev container config
-├── .github/workflows/              # GitHub Actions CI/CD
+Weather-Forecasting-ML/
+├── .devcontainer/devcontainer.json     # Dev container config
+├── .github/workflows/ci.yml            # Builds the Docker stack, runs pytest and the calculator
 ├── weatherForcastingCalculator/
+│   ├── Calculator.py                   # Orchestrator
+│   ├── dataPrep/
+│   │   ├── syntheticData.py            # Synthetic station generator
+│   │   ├── dataChecks.py               # Input and dataset checks
+│   │   ├── inputWrapper.py             # JSON input parser
+│   │   ├── outputWrapper.py            # Output wrapper
+│   │   └── mlFlowConfig.py             # MLflow (Docker server or local SQLite)
 │   ├── utils/
-│   │   ├── dataPrepAndParser.py    # async data ingestion + cleaning
-│   │   └── utils.py                # input file helpers
-│   └── Data/                       # local weather data files (CSV/JSON)
+│   │   ├── dataPrepAndParser.py        # Async NOAA USCRN pull
+│   │   ├── dataCleaning.py             # Missing codes, station info, map
+│   │   └── utils.py                    # JSON helpers
+│   ├── Data/weatherDataColumnInfo.xlsx # USCRN column descriptions
+│   └── Figures/                        # Station map
 ├── tests/
+│   ├── in_jsons/                       # pytest input configs
+│   ├── test_synthetic_data.py
 │   └── test_calculator.py
-├── Calculator.py                   # main entry point
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-└── .env.example
+├── conftest.py                         # pytest path config
+├── Dockerfile                          # Python 3.11
+├── Dockerfile.mlflow                   # MLflow server
+├── docker-compose.yml                  # calculator, mlflow
+└── requirements.txt
 ```
 
-## Getting Started
+---
 
-You've got three options depending on your setup.
+## Data
 
-### VS Code Dev Container (easiest)
+Real data comes from NOAA's [U.S. Climate Reference Network](https://www.ncei.noaa.gov/access/crn/) hourly product. Column definitions are in `weatherForcastingCalculator/Data/weatherDataColumnInfo.xlsx`. Pulled and synthetic data are both gitignored.
 
-```bash
-git clone git@github.com:tomskija/Weather-Forcasting-ML.git
-cd Weather-Forcasting-ML
-code .
-```
-
-Hit `Ctrl+Shift+P` → `Dev Containers: Reopen in Container`, wait for the build, then:
-
-```bash
-python Calculator.py
-```
-
-Everything is pre-installed inside the container — Python 3.11, all dependencies, Black, flake8, Jupyter.
-
-### Docker Compose
-
-```bash
-git clone git@github.com:tomskija/Weather-Forcasting-ML.git
-cd Weather-Forcasting-ML
-docker-compose up weather-app-dev
-docker-compose exec weather-app-dev bash
-python Calculator.py
-```
-
-### Local Python
-
-```bash
-git clone git@github.com:tomskija/Weather-Forcasting-ML.git
-cd Weather-Forcasting-ML
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env      # add your API keys
-python Calculator.py
-```
+---
 
 ## Dependencies
 
-Everything installs automatically from `requirements.txt`. Main ones worth knowing:
-
-| Package | Purpose |
-|---|---|
-| `numpy` / `pandas` | Data manipulation |
-| `matplotlib` / `seaborn` | Visualization |
-| `scikit-learn` | ML modeling |
-| `metpy` / `xarray` | Meteorological and N-dimensional data |
-| `fastapi` / `aiohttp` | API layer + async HTTP |
-
-## Problem Types
-
-**PROB01 — Feature Analysis**
-Statistical summaries and diagnostic plots for the cleaned station data — correlation matrices, uncertainty estimates, feature importance rankings.
-
-**PROB02 — Geospatial Modeling**
-Spatially interpolates weather observations across the station grid to build 2D/3D field representations for predicting conditions at unobserved locations and times.
-
-**PROB03 — Time Series Forecasting**
-ML-based prediction of weather variables forward in time, from classical approaches (ARIMA, exponential smoothing) through tree-based and neural forecasters.
-
-**PROB04 — Additional AI/ML Frameworks**
-TBD — reserved for more advanced techniques once the earlier problem types are built out.
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in your keys:
-
-```bash
-ENV=development
-DEBUG=true
-PORT=8000
-
-OPENWEATHER_API_KEY=your_key_here
-WEATHER_API_KEY=your_key_here
-
-MODEL_TRAINING_INTERVAL_HOURS=24
-PREDICTION_WINDOW_DAYS=7
-```
-
-## Testing
-
-```bash
-pytest tests/ -v
-pytest tests/ --cov=weatherForcastingCalculator --cov-report=html
-flake8 weatherForcastingCalculator/
-black --check weatherForcastingCalculator/
-```
-
-## Deployment
-
-```bash
-# Standalone Docker
-docker build -t weather-app .
-docker run -p 8000:8000 weather-app
-
-# Docker Compose
-docker-compose up -d weather-app
-```
-
-CI/CD is set up via GitHub Actions — runs tests on every push, builds and pushes the Docker image to GitHub Container Registry on merges to `main`.
-
-## Troubleshooting
-
-**Dev container won't start** — `docker system prune -a`, then rebuild via `Ctrl+Shift+P`
-
-**Port in use** — `lsof -i :8000` (Mac/Linux) or `netstat -ano | findstr :8000` (Windows), then kill the process or change `PORT` in `.env`
-
-**Import errors** — check `echo $PYTHONPATH`, should be `/workspace` or `/app`
-
-**Docker build fails** — `docker builder prune` then `docker build --no-cache -t weather-app .`
-
-## Questions / Issues
-
-Open an issue [here](https://github.com/tomskija/Weather-Forcasting-ML/issues).
+Python 3.11 · numpy · pandas · scipy · scikit-learn · matplotlib · seaborn · aiohttp · beautifulsoup4 · requests · openpyxl · mlflow · pytest

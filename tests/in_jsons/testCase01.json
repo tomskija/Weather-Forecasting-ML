@@ -1,0 +1,47 @@
+{
+    "data": {
+        "params": [
+            {
+                "name": "name",
+                "value": "Weather_Test01",
+                "valueType": 3
+            },
+            {
+                "name": "problemType",
+                "value": "PROB01",
+                "valueType": 3
+            },
+            {
+                "name": "data_source",
+                "value": "synthetic",
+                "valueType": 3
+            },
+            {
+                "name": "random_seed",
+                "value": 5195,
+                "valueType": 2
+            },
+            {
+                "name": "output_dir",
+                "value": "Data/Synthetic/small",
+                "valueType": 3
+            },
+            {
+                "name": "n_stations",
+                "value": 12,
+                "valueType": 2
+            },
+            {
+                "name": "start_date",
+                "value": "2024-01-01",
+                "valueType": 3
+            },
+            {
+                "name": "n_days",
+                "value": 30,
+                "valueType": 2
+            }
+        ],
+        "tables": []
+    }
+}
